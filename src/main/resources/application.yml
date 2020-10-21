@@ -1,0 +1,12 @@
+#环境切换dev-测试环境 prod-开发环境 yun-正式环境
+spring:
+  profiles:
+    active: local
+
+  application:
+    name: suanfa
+  main:
+    allow-bean-definition-overriding: true
+
+logging:
+  config: classpath:logback.xml

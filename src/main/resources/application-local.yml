@@ -1,0 +1,12 @@
+server:
+  port: 28010
+
+swagger:
+  title: 钢筋算法
+  description: 钢筋算法接口
+  version: 1.0.0
+logging:
+  level:
+    com.dakuan.suanfa: info
+    io.swagger.models.parameters.AbstractSerializableParameter: error
+  path: classpath:logback.xml
