@@ -2,6 +2,7 @@ package com.dakuan.domian;
 
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.ToString;
 import lombok.experimental.Accessors;
@@ -10,7 +11,7 @@ import javax.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
-
+@AllArgsConstructor
 @Data
 @ToString
 @Accessors(chain = true)
