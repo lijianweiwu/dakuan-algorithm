@@ -2,20 +2,24 @@ package com.dakuan.domian;
 
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.ToString;
 import lombok.experimental.Accessors;
 
 import javax.validation.constraints.NotNull;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 @Data
 @ToString
 @Accessors(chain = true)
-@AllArgsConstructor
-@ApiModel("优化后的开料合并")
-public class IronBarResultMerge {
+@ApiModel("开单临时实体类")
+public class IronBarResult {
+
+    @ApiModelProperty(value = "标识id")
+    private UUID id;
+
     @NotNull
     @ApiModelProperty(value = "型号id")
     private String typeId;
@@ -24,21 +28,17 @@ public class IronBarResultMerge {
     @ApiModelProperty(value = "直径id")
     private String diamId;
 
-    @NotNull
-    @ApiModelProperty(value = "型号")
+    @ApiModelProperty(value = "类型")
     private String type;
-
-    @NotNull
     @ApiModelProperty(value = "直径")
-    private BigDecimal diam;//直径
+    private BigDecimal diam;
 
-    @NotNull
     @ApiModelProperty(value = "长度")
-    private BigDecimal length;//长度
+    private BigDecimal length;
 
-    @ApiModelProperty(value = "数量")
-    private Integer num;
+    @ApiModelProperty(value = "切割后剩余长度")
+    private BigDecimal remainLen;
 
-    @ApiModelProperty(value = "描述字符串（例：str_12_1000-450-450%100;表示：型号_直径_原材料长_切割长度-切割长度%余料长度）")
-    private String dtl;
+    @ApiModelProperty(value = "已切割的长度")
+    private List<BigDecimal> len;
 }

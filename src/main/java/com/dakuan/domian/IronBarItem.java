@@ -41,6 +41,7 @@ public class IronBarItem{
     @NotNull
     @ApiModelProperty(value = "长度")
     private BigDecimal length;//长度
+
     @NotNull
     @ApiModelProperty(value = "数量")
     private Integer num;

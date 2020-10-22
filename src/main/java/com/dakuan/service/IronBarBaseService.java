@@ -11,7 +11,7 @@ import com.dakuan.domian.response.IronBarVO;
 import java.util.List;
 
 /**
- * 判断库存是否足够
+ * 开单优化
  */
 public interface IronBarBaseService {
 

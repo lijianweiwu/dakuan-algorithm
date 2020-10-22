@@ -11,6 +11,7 @@ public enum ResultCode {
     DIAM_ERROR(5002,"规格钢筋不符,数据字典中无该规格钢筋！"),
     PARAMETER_NULL(5003,"库存或订单为空，请重新调整优化方案！") ;
 
+
     private long code;
     private String message;
 

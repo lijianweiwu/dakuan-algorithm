@@ -1,5 +1,5 @@
 server:
-  port: 28010
+  port: 28011
 
 swagger:
   title: 钢筋算法
