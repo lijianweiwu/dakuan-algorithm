@@ -78,8 +78,9 @@ public class IronBarServiceImpl implements IronBarBaseService {
                         // 解析key 找出订单中使用的钢筋
                         List<IronBarItem> odListWc = zuheList.get(Integer.valueOf(key.split("@")[0]));
                         // 从订单中移除使用过钢筋
-                        olist.removeAll(odListWc);
-
+                        for (IronBarItem ironBarItem : odListWc) {
+                            olist.remove(ironBarItem);
+                        }
 
                         //组合长度
                         BigDecimal remainLen = rsMap.get(key);
@@ -94,7 +95,8 @@ public class IronBarServiceImpl implements IronBarBaseService {
                             ironBarResult.getLen().addAll(odLens);
                             ironBarResult.setRemainLen(remainLen);
                         } else { //用的库存实体
-                            BigDecimal kcLength = new BigDecimal(key.split("@")[3].toString());
+
+                            BigDecimal kcLength = new BigDecimal(key.split("@")[2].toString());
                             IronBarItem ironBarItem = commonDiamMap.get(kcLength);
 
                             if (ironBarItem.getNum() > 0) {
@@ -120,7 +122,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
                 }
                 //  封装结果集
                 mergeIronBarResults(tmpResultList, vo);
-                return Result.success(vo);
+                return Result.success(ResultCode.SUCCESS,vo);
 
             } else if (oi.isMixNorm() && !oi.isWeld()) { //降格代用 不焊接
             }
@@ -129,8 +131,8 @@ public class IronBarServiceImpl implements IronBarBaseService {
     }
 
     private void mergeIronBarResults(List<IronBarResult> tmpResultList, IronBarVO vo) {
-        List<IronBarResultMerge> ironBarResultMerges = vo.getIronBarResultMerges();
-        List<IronBarItem> remainIronBarResults = vo.getRemainIronBarResults();
+        List<IronBarResultMerge> ironBarResultMerges =new ArrayList<>();
+        List<IronBarItem> remainIronBarResults = new ArrayList<>();
         for (IronBarResult ironBarResult : tmpResultList) {
             String typeId = ironBarResult.getTypeId();
             String diamId = ironBarResult.getDiamId();
@@ -144,9 +146,10 @@ public class IronBarServiceImpl implements IronBarBaseService {
             StringBuffer sb = new StringBuffer();
             sb.append(type).append("_").append(diam).append("_").append(length).append("_");
             for (int i = len.size() - 1; i >= 0; i--) {
-                sb.append(len.get(i)).append("-");
-                if (len.size() == 1) {
+                if (i == 0) {
                     sb.append(len.get(i));
+                }else{
+                    sb.append(len.get(i)).append("-");
                 }
             }
             sb.append("%").append(remainLen);
@@ -187,6 +190,8 @@ public class IronBarServiceImpl implements IronBarBaseService {
                 remainIronBarResults.add(item);
             }
         }
+        vo.setIronBarResultMerges(ironBarResultMerges);
+        vo.setRemainIronBarResults(remainIronBarResults);
     }
 
     /**
@@ -302,8 +307,8 @@ public class IronBarServiceImpl implements IronBarBaseService {
         for (int i = 0; i < olist.size(); i++) {
             BigDecimal length = olist.get(i).getLength();
             // 最多允许该长度钢筋条数
-
-            int maxNum = maxLength.divide(length).intValue();
+            BigDecimal divide = maxLength.divide(length,0);
+            int maxNum = divide.intValue();
             int num = 0;
             for (int j = 0; j < ironBarItems.size(); j++) {
                 if (length.equals(ironBarItems.get(j).getLength())) {
@@ -381,11 +386,17 @@ public class IronBarServiceImpl implements IronBarBaseService {
     private void splitIronBar(List<IronBarItem> sourceList, List<IronBarItem> targetList, Set<String> typeDiamSet) {
         if (!CollectionUtils.isEmpty(sourceList)) {
             for (IronBarItem item : sourceList) {
+                @NotNull String typeId = item.getTypeId();
+                @NotNull String diamId = item.getDiamId();
+                @NotNull String type = item.getType();
+                @NotNull BigDecimal diam = item.getDiam();
+                @NotNull BigDecimal length = item.getLength();
+
                 if (item.getNum() > 0) {
                     for (int i = 0; i < item.getNum(); i++) {
-                        IronBarItem ironBarItem = new IronBarItem();
-                        BeanUtils.copyProperties(item, ironBarItem);
-                        ironBarItem.setNum(1);
+                        IronBarItem ironBarItem = new IronBarItem(typeId,diamId,type,diam,length,1);
+//                        BeanUtils.copyProperties(item, ironBarItem);
+//                        ironBarItem.setNum(1);
                         targetList.add(ironBarItem);
                     }
                     typeDiamSet.add(item.getType() + "@" + item.getDiam());
