@@ -1,12 +1,12 @@
 package com.dakuan.service.impl;
 
 
-import com.dakuan.common.IronDiam;
+import com.dakuan.common.IronDiamHPB;
+import com.dakuan.common.IronDiamHRB;
 import com.dakuan.common.Result;
 import com.dakuan.common.ResultCode;
 import com.dakuan.domian.*;
 import com.dakuan.domian.response.IronBarVO;
-import com.dakuan.exception.ExceptionCast;
 import com.dakuan.service.IronBarBaseService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -16,8 +16,6 @@ import org.springframework.util.CollectionUtils;
 import javax.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,6 +31,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
         List<IronBarItem> orderlist = new ArrayList<>();
         //订单需求钢筋规格与直径拼接
         Set<String> typeDiamSet = new HashSet();
+        // 遍历订单把订单拆分为单根实体
         for (OrderEntity orderEntity : od) {
             List<IronBarItem> ironBarItems = orderEntity.getIronBarItems();
             // 拆分订单方法
@@ -49,12 +48,12 @@ public class IronBarServiceImpl implements IronBarBaseService {
             if (!oi.isMixNorm() && !oi.isWeld()) {  //不降格代用 不焊接
                 // 4.1.1 按型号规格遍历订单
                 for (String typeAndDiam : typeDiamSet) {
-                    String type = typeAndDiam.split("@")[0]; // 型号
-                    BigDecimal diam = new BigDecimal(typeAndDiam.split("@")[1]); //直径
+                    String type = typeAndDiam.split("Φ")[0]; // 型号
+                    BigDecimal diam = new BigDecimal(typeAndDiam.split("Φ")[1]); //直径
                     // 该型号直径的订单集合
                     List<IronBarItem> olist = orderlist.stream().filter(o -> diam.equals(o.getDiam()) && type.equals(o.getType())).sorted(Comparator.comparing(IronBarItem::getLength).reversed()).collect(Collectors.toList());
                     // 该型号直径的库存集合
-                    Map<BigDecimal, IronBarItem> commonDiamMap = selectKcMap(kcMap, type, diam, oi.isMixNorm());
+                    Map<BigDecimal, IronBarItem> commonDiamMap = selectKcMap(kcMap, type, diam);
                     // 计算出type型号diam直径 最长的钢筋长度
                     BigDecimal maxLen = getMaxKey(commonDiamMap);
 
@@ -68,8 +67,9 @@ public class IronBarServiceImpl implements IronBarBaseService {
                         List<IronBarItem> ironBarItems = selectSunset(olist, maxLen);
                         //所有排列组合
                         List<List<IronBarItem>> zuheList = arrangeSelect1(ironBarItems, maxLen);
-                        // 计算出余料集合
-                        Map<String, BigDecimal> rsMap = addMinRs(zuheList, false, diam, type, commonDiamMap, tmpResultList);
+                        // 计算出余料集合rsMap<组合索引@来源标识@来源索引，剩余长度>
+
+                        Map<String, BigDecimal> rsMap = addMinRs(zuheList, diam, type, commonDiamMap, tmpResultList);
                         if (CollectionUtils.isEmpty(rsMap)) {
                             return Result.error(ResultCode.UNDER_STOCK.getCode(), typeAndDiam + ResultCode.UNDER_STOCK.getMessage());
                         }
@@ -90,8 +90,8 @@ public class IronBarServiceImpl implements IronBarBaseService {
                         }
 
                         // 找到库存或临时开单的实体类
-                        if (key.split("@")[1].equals(1)) { // 用的临时开单实体
-                            IronBarResult ironBarResult = tmpResultList.get(Integer.valueOf(key.split("@")[3]));
+                        if (key.split("@")[1].equals("1")) { // 用的临时开单实体
+                            IronBarResult ironBarResult = tmpResultList.get(Integer.valueOf(key.split("@")[2]));
                             ironBarResult.getLen().addAll(odLens);
                             ironBarResult.setRemainLen(remainLen);
                         } else { //用的库存实体
@@ -122,16 +122,153 @@ public class IronBarServiceImpl implements IronBarBaseService {
                 }
                 //  封装结果集
                 mergeIronBarResults(tmpResultList, vo);
-                return Result.success(ResultCode.SUCCESS,vo);
+                return Result.success(ResultCode.SUCCESS, vo);
 
             } else if (oi.isMixNorm() && !oi.isWeld()) { //降格代用 不焊接
+                // 4.1.1 按型号规格遍历订单
+                for (String typeAndDiam : typeDiamSet) {
+                    String type = typeAndDiam.split("Φ")[0]; // 型号
+
+                    BigDecimal diam = new BigDecimal(typeAndDiam.split("Φ")[1]); //直径
+                    // 降格替用直径
+                    BigDecimal replaceDiam = null;
+                    if (type.toLowerCase().contains("hrb")) {
+                        if (IronDiamHRB.isCode(diam) && IronDiamHRB.isId(IronDiamHRB.getId(diam) + 1)) {
+                            replaceDiam = IronDiamHRB.getCode(IronDiamHRB.getId(diam) + 1);
+                        }
+                    } else if (type.toLowerCase().contains("hpb")) {
+                        if (IronDiamHPB.isCode(diam) && IronDiamHPB.isId(IronDiamHPB.getId(diam) + 1)) {
+                            replaceDiam = IronDiamHPB.getCode(IronDiamHPB.getId(diam) + 1);
+                        }
+                    } else {//钢筋不在数据字典中
+                        return Result.error(ResultCode.DIAM_ERROR.getCode(), typeAndDiam + ResultCode.DIAM_ERROR.getMessage());
+                    }
+
+                    // 该型号直径的订单集合
+                    List<IronBarItem> olist = orderlist.stream().filter(o -> diam.equals(o.getDiam()) && type.equals(o.getType())).sorted(Comparator.comparing(IronBarItem::getLength).reversed()).collect(Collectors.toList());
+                    // 该型号直径的库存集合
+                    Map<BigDecimal, IronBarItem> commonDiamMap = selectKcMap(kcMap, type, diam);
+                    // 替用型号的库存集合
+                    Map<BigDecimal, IronBarItem> replaceDiamMap = selectKcMap(kcMap, type, replaceDiam);
+                    // 计算出type型号diam直径 最长的钢筋长度
+                    BigDecimal commonMaxLen = getMaxKey(commonDiamMap);
+                    BigDecimal replaceMaxLen = getMaxKey(replaceDiamMap);
+                    BigDecimal maxLen = commonMaxLen.compareTo(replaceMaxLen) > 0 ? commonMaxLen : replaceMaxLen;
+                    // 循环订单
+                    while (olist.size() > 0) {
+                        // 由于计算量太大，选出需要参与全排列的子集
+                        List<IronBarItem> ironBarItems = selectSunset(olist, maxLen);
+                        //所有排列组合
+                        List<List<IronBarItem>> zuheList = arrangeSelect1(ironBarItems, maxLen);
+                        // 计算出余料集合rsMap<组合索引@来源标识@来源索引，剩余长度>
+
+                        Map<String, BigDecimal> rsMap = addMinRs(zuheList, diam, type, commonDiamMap, tmpResultList);
+                        // 是否使用降格替用标志
+                        boolean isRepalce = false;
+                        if (CollectionUtils.isEmpty(rsMap) && !CollectionUtils.isEmpty(replaceDiamMap)) {// 相同规格库存不足
+                            //尝试降格代用
+                            rsMap = addMinRs(zuheList, replaceDiam, type, replaceDiamMap, tmpResultList);
+                            isRepalce = true;
+                        }
+                        if (CollectionUtils.isEmpty(rsMap)) { //降格后还是不足
+                            return Result.error(ResultCode.UNDER_STOCK.getCode(), typeAndDiam + ResultCode.UNDER_STOCK.getMessage());
+
+                        }
+                        // 选择余料最少的key
+                        String key = getKeyByMinValue(rsMap);
+                        // 解析key 找出订单中使用的钢筋
+                        List<IronBarItem> odListWc = zuheList.get(Integer.valueOf(key.split("@")[0]));
+                        // 从订单中移除使用过钢筋
+                        for (IronBarItem ironBarItem : odListWc) {
+                            olist.remove(ironBarItem);
+                        }
+
+                        //组合长度
+                        BigDecimal remainLen = rsMap.get(key);
+                        List<BigDecimal> odLens = new ArrayList<>();
+                        for (int i = 0; i < odListWc.size(); i++) {
+                            odLens.add(odListWc.get(i).getLength());
+                        }
+
+                        // 找到库存或临时开单的实体类
+                        if (key.split("@")[1].equals("1")) { // 用的临时开单实体
+                            IronBarResult ironBarResult = tmpResultList.get(Integer.valueOf(key.split("@")[2]));
+                            ironBarResult.getLen().addAll(odLens);
+                            ironBarResult.setRemainLen(remainLen);
+                        } else { //用的库存实体
+
+                            BigDecimal kcLength = new BigDecimal(key.split("@")[2].toString());
+                            // 找到使用库存中的钢筋，并移除
+                            IronBarItem ironBarItem = findIronBarItem(isRepalce, kcLength, replaceDiamMap, commonDiamMap);
+                          // 把开单信息加入临时开单集合中
+                            IronBarResult ironBarResult = new IronBarResult(UUID.randomUUID(),
+                                    ironBarItem.getTypeId(), ironBarItem.getDiamId(), ironBarItem.getType(),
+                                    ironBarItem.getDiam(), ironBarItem.getLength(), remainLen, odLens);
+                            tmpResultList.add(ironBarResult);
+                        }
+                    }
+                }
+                //  封装结果集
+                mergeIronBarResults(tmpResultList, vo);
+                return Result.success(ResultCode.SUCCESS, vo);
             }
         }
-        return null;
+        return Result.error(ResultCode.NOT_SUPPORT);
     }
 
+    /**
+     * @param isRepalce      是否使用降格
+     * @param kcLength       使用钢筋的长度
+     * @param replaceDiamMap 降格库存
+     * @param commonDiamMap  同规格库存
+     * @return
+     */
+    private IronBarItem findIronBarItem(boolean isRepalce, BigDecimal kcLength, Map<BigDecimal, IronBarItem> replaceDiamMap, Map<BigDecimal, IronBarItem> commonDiamMap) {
+        IronBarItem ironBarItem = null;
+        if (isRepalce) {
+            ironBarItem = replaceDiamMap.get(kcLength);
+            if (ironBarItem.getNum() > 0) {
+                ironBarItem.setNum(ironBarItem.getNum() - 1);
+                if (ironBarItem.getNum() <= 0) {
+                    replaceDiamMap.keySet().removeIf(o -> o.compareTo(kcLength)==0);
+//                                    Iterator<BigDecimal> iterator = commonDiamMap.keySet().iterator();
+//                                    while (iterator.hasNext()){
+//                                        BigDecimal next = iterator.next();
+//                                        if (kcLength.equals(next)){
+//                                            iterator.remove();
+//                                            commonDiamMap.remove(kcLength);
+//                                        }
+//                                    }
+                }
+            }
+        } else {
+            ironBarItem = commonDiamMap.get(kcLength);
+            if (ironBarItem.getNum() > 0) {
+                ironBarItem.setNum(ironBarItem.getNum() - 1);
+                if (ironBarItem.getNum() <= 0) {
+                    commonDiamMap.keySet().removeIf(o -> o.compareTo(kcLength)==0);
+//                                    Iterator<BigDecimal> iterator = commonDiamMap.keySet().iterator();
+//                                    while (iterator.hasNext()){
+//                                        BigDecimal next = iterator.next();
+//                                        if (kcLength.equals(next)){
+//                                            iterator.remove();
+//                                            commonDiamMap.remove(kcLength);
+//                                        }
+//                                    }
+                }
+            }
+        }
+        return ironBarItem;
+    }
+
+    /**
+     * 设置返回结果
+     *
+     * @param tmpResultList
+     * @param vo
+     */
     private void mergeIronBarResults(List<IronBarResult> tmpResultList, IronBarVO vo) {
-        List<IronBarResultMerge> ironBarResultMerges =new ArrayList<>();
+        List<IronBarResultMerge> ironBarResultMerges = new ArrayList<>();
         List<IronBarItem> remainIronBarResults = new ArrayList<>();
         for (IronBarResult ironBarResult : tmpResultList) {
             String typeId = ironBarResult.getTypeId();
@@ -148,7 +285,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
             for (int i = len.size() - 1; i >= 0; i--) {
                 if (i == 0) {
                     sb.append(len.get(i));
-                }else{
+                } else {
                     sb.append(len.get(i)).append("-");
                 }
             }
@@ -179,13 +316,13 @@ public class IronBarServiceImpl implements IronBarBaseService {
                 BigDecimal diam1 = remainIronBarResult.getDiam();
                 BigDecimal length1 = remainIronBarResult.getLength();
                 Integer num = remainIronBarResult.getNum();
-                if (diam.equals(diam1) && type.equals(type1) && remainLen.equals(length1)) {
+                if (diam.compareTo(diam1)==0 && type.equals(type1) && remainLen.compareTo(length1)==0) {
                     remainIronBarResult.setNum(num + 1);
                     flag1 = true;
                     break;
                 }
             }
-            if (!flag1) {
+            if (!flag1&&remainLen.compareTo(new BigDecimal(0))>0) {
                 IronBarItem item = new IronBarItem(typeId, diamId, type, diam, remainLen, 1);
                 remainIronBarResults.add(item);
             }
@@ -211,12 +348,12 @@ public class IronBarServiceImpl implements IronBarBaseService {
     /**
      * @return void
      * @Description //TODO
-     * @Param [zuheList 订单组合, isMixNorm 是否降格,diam 订单直径, type 订单类型
+     * @Param [zuheList 订单组合, diam 订单直径, type 订单类型
      * commonDiamMap 相同型号规格的库存,tmpResultList 临时开单集合]
      * @Author lijian
      * @Date 2020/10/22 15:52
      **/
-    private Map<String, BigDecimal> addMinRs(List<List<IronBarItem>> zuheList, boolean isMixNorm,
+    private Map<String, BigDecimal> addMinRs(List<List<IronBarItem>> zuheList,
                                              BigDecimal diam, String type, Map<BigDecimal, IronBarItem> commonDiamMap,
                                              List<IronBarResult> tmpResultList) {
         Map<String, BigDecimal> rs = new HashMap<>();
@@ -234,7 +371,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
 
                 BigDecimal tmpDiam = ironBarResult.getDiam();
                 String tmpType = ironBarResult.getType();
-                if (diam.equals(tmpDiam) && type.equals(tmpType)) { //如果临时开单中有相同型号，相同规格钢筋
+                if (diam.compareTo(tmpDiam) == 0 && type.equals(tmpType)) { //如果临时开单中有相同型号，相同规格钢筋
                     BigDecimal subtract = ironBarResult.getRemainLen().subtract(totalLen);
                     if (subtract.compareTo(BigDecimal.ZERO) >= 0) {
                         rs.put(i + "@" + 1 + "@" + i1, subtract);
@@ -259,12 +396,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
         return rs;
     }
 
-    public static void main(String[] args) {
-        BigDecimal bigDecimal = new BigDecimal(3);
-        System.out.println(bigDecimal);
-        bigDecimal = bigDecimal.add(bigDecimal);
-        System.out.println(bigDecimal);
-    }
+
 
     /**
      * 排列组合所有可能存在的子集
@@ -307,7 +439,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
         for (int i = 0; i < olist.size(); i++) {
             BigDecimal length = olist.get(i).getLength();
             // 最多允许该长度钢筋条数
-            BigDecimal divide = maxLength.divide(length,0);
+            BigDecimal divide = maxLength.divide(length, 0);
             int maxNum = divide.intValue();
             int num = 0;
             for (int j = 0; j < ironBarItems.size(); j++) {
@@ -318,7 +450,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
             if (num < maxNum) {
                 ironBarItems.add(olist.get(i));
             }
-            if (ironBarItems.size() > 15) {
+            if (ironBarItems.size() > 10) {
                 break;
             }
         }
@@ -334,7 +466,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
      */
     private BigDecimal getMaxKey(Map<BigDecimal, IronBarItem> map) {
         if (map == null) {
-            return null;
+            return new BigDecimal(0);
         }
         Set<BigDecimal> bigDecimals = map.keySet();
         Object[] obj = bigDecimals.toArray();
@@ -345,32 +477,16 @@ public class IronBarServiceImpl implements IronBarBaseService {
     /**
      * 返回符合该订单型号的集合
      *
-     * @param kcMap     库存钢筋
+     * @param kcMap 库存钢筋
      * @param type
      * @param diam
-     * @param isMixNorm 是否支持降格代用
      */
-    private Map<BigDecimal, IronBarItem> selectKcMap(Map<String, Map<BigDecimal, Map<BigDecimal, IronBarItem>>> kcMap, String type, BigDecimal diam, boolean isMixNorm) {
+    private Map<BigDecimal, IronBarItem> selectKcMap(Map<String, Map<BigDecimal, Map<BigDecimal, IronBarItem>>> kcMap, String type, BigDecimal diam) {
         if (kcMap.containsKey(type)) {
-            if (!isMixNorm) { //不支持降格代用
+            if (kcMap.get(type).get(diam) != null) {
                 Map<BigDecimal, IronBarItem> itemMap = kcMap.get(type).get(diam);
                 return itemMap;
-            } else { //支持降格代用
-
-                try {
-                    Integer id = IronDiam.getId(diam);
-                    // 取大一规格钢筋
-                    BigDecimal geDiam = IronDiam.getCode(id + 1);
-//                    Map<BigDecimal, IronBarItem> itemMap = kcMap.get(type).get(diam);
-                    Map<BigDecimal, IronBarItem> geItemMap = kcMap.get(type).get(geDiam);
-                    return geItemMap;
-                } catch (Exception e) { // 订单规格有误
-                    ExceptionCast.cast(ResultCode.DIAM_ERROR);
-
-                }
-
             }
-
         }
         return null;
     }
@@ -394,12 +510,13 @@ public class IronBarServiceImpl implements IronBarBaseService {
 
                 if (item.getNum() > 0) {
                     for (int i = 0; i < item.getNum(); i++) {
-                        IronBarItem ironBarItem = new IronBarItem(typeId,diamId,type,diam,length,1);
-//                        BeanUtils.copyProperties(item, ironBarItem);
-//                        ironBarItem.setNum(1);
+//                        IronBarItem ironBarItem = new IronBarItem(typeId,diamId,type,diam,length,1);
+                        IronBarItem ironBarItem = new IronBarItem();
+                        BeanUtils.copyProperties(item, ironBarItem);
+                        ironBarItem.setNum(1);
                         targetList.add(ironBarItem);
                     }
-                    typeDiamSet.add(item.getType() + "@" + item.getDiam());
+                    typeDiamSet.add(item.getType() + "Φ" + item.getDiam());
                 }
             }
         }
@@ -413,14 +530,18 @@ public class IronBarServiceImpl implements IronBarBaseService {
      */
     private Map<String, Map<BigDecimal, Map<BigDecimal, IronBarItem>>> initKcMap(List<IronBarItem> kc) {
         Map<String, Map<BigDecimal, Map<BigDecimal, IronBarItem>>> kcMap = new HashMap<>();
-        kc.forEach(item -> {
+        for (int i = 0; i < kc.size(); i++) {
+            IronBarItem item = kc.get(i);
             BigDecimal diam = item.getDiam();
             String diamId = item.getDiamId();
             BigDecimal length = item.getLength();
             String type = item.getType();
             String typeId = item.getTypeId();
             // 防止钢筋数量小于0
-            Integer num = item.getNum() < 0 ? 0 : item.getNum();
+            Integer num = item.getNum();
+            if (num < 1) {
+                continue;
+            }
 
             if (kcMap.containsKey(type)) {
                 // 相同型号库存map
@@ -447,7 +568,7 @@ public class IronBarServiceImpl implements IronBarBaseService {
                 diamMap.put(diam, lenMap);
                 kcMap.put(type, diamMap);
             }
-        });
+        }
         return kcMap;
     }
 
@@ -720,6 +841,38 @@ public class IronBarServiceImpl implements IronBarBaseService {
  * @param yfl            余料废料长度
  * <p>
  * 选出参加全排列的订单钢筋
+ * @param olist     订单集合
+ * @param maxLength
+ * @return 排列组合所有可能存在的子集
+ * @param data
+ * @param maxLength
+ * @return 获取value最小是的key
+ * @param map
+ * @return 选出参加全排列的订单钢筋
+ * @param olist     订单集合
+ * @param maxLength
+ * @return 排列组合所有可能存在的子集
+ * @param data
+ * @param maxLength
+ * @return 获取value最小是的key
+ * @param map
+ * @return 选出参加全排列的订单钢筋
+ * @param olist     订单集合
+ * @param maxLength
+ * @return 排列组合所有可能存在的子集
+ * @param data
+ * @param maxLength
+ * @return 获取value最小是的key
+ * @param map
+ * @return 选出参加全排列的订单钢筋
+ * @param olist     订单集合
+ * @param maxLength
+ * @return 排列组合所有可能存在的子集
+ * @param data
+ * @param maxLength
+ * @return 获取value最小是的key
+ * @param map
+ * @return 选出参加全排列的订单钢筋
  * @param olist     订单集合
  * @param maxLength
  * @return 排列组合所有可能存在的子集

@@ -5,11 +5,12 @@ package com.dakuan.common;
  * Created on 2019/4/19.
  */
 public enum ResultCode {
-    SUCCESS(200, "操作成功"),
-    FAILED(5000, "操作失败,请稍后再试！"),
-    UNDER_STOCK(5001,"规格库存不足,请重新调整方案！"),
-    DIAM_ERROR(5002,"规格钢筋不符,数据字典中无该规格钢筋！"),
-    PARAMETER_NULL(5003,"库存或订单为空，请重新调整优化方案！") ;
+    SUCCESS(200, "订单智能优化成功！"),
+    FAILED(5000, "订单智能优化失败,请重新调整方案！"),
+    UNDER_STOCK(5001,"库存不足,请重新调整方案！"),
+    DIAM_ERROR(5002,"未知型号，暂不支持智能优化,请重新调整方案！"),
+    PARAMETER_NULL(5003,"库存或订单为空，请重新调整优化方案！"),
+    NOT_SUPPORT(5004,"暂不支持焊接与余料优化，请重新调整优化方案！");
 
 
     private long code;
